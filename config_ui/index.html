@@ -31,7 +31,7 @@
         font-size: 22px;
       }
 
-      p {␊
+      p {
         margin: 0 0 16px;
         color: #6b7280;
         font-size: 14px;
@@ -57,15 +57,47 @@
         font-size: 14px;
         box-sizing: border-box;
       }
-@@ -94,159 +94,451 @@
+
+
+      button {
+        border: 1px solid transparent;
+        border-radius: 10px;
+        padding: 10px 16px;
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1.2;
+        cursor: pointer;
+        color: #ffffff;
+        background: linear-gradient(135deg, #4f46e5, #4338ca);
+        box-shadow: 0 6px 14px rgba(79, 70, 229, 0.24);
+        transition: transform 0.16s ease, box-shadow 0.2s ease, background 0.2s ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 20px rgba(79, 70, 229, 0.28);
+        background: linear-gradient(135deg, #4338ca, #3730a3);
+      }
+
+      button:active {
+        transform: translateY(0);
+      }
+
+      button:focus-visible {
+        outline: 3px solid rgba(99, 102, 241, 0.35);
+        outline-offset: 2px;
+      }
+
       .secondary-btn {
-        border: 1px solid #cbd5f5;
+        border: 1px solid #c7d2fe;
         background: #eef2ff;
         color: #3730a3;
+        box-shadow: 0 4px 10px rgba(99, 102, 241, 0.12);
       }
 
       .secondary-btn:hover {
         background: #e0e7ff;
+        box-shadow: 0 8px 16px rgba(99, 102, 241, 0.2);
       }
 
       .status {
@@ -81,6 +113,30 @@
         font-size: 12px;
         color: #6b7280;
         margin-top: 6px;
+      }
+
+      .help-box {
+        margin-top: 8px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid #e5e7eb;
+        background: #f8fafc;
+        font-size: 12px;
+        color: #475569;
+        line-height: 1.6;
+      }
+
+      .help-box strong {
+        color: #1f2937;
+      }
+
+      .help-list {
+        margin: 8px 0 0;
+        padding-left: 18px;
+      }
+
+      .help-list li {
+        margin-bottom: 4px;
       }
 
       .suggest-row {
@@ -171,10 +227,11 @@
       }
 
       .icon-btn {
-        border: 1px solid #e5e7eb;
-        background: #fff;
+        border: 1px solid #d1d5db;
+        background: #ffffff;
         color: #475569;
-        padding: 6px 10px;
+        padding: 8px 12px;
+        box-shadow: none;
       }
 
       .icon-btn:hover {
@@ -202,13 +259,13 @@
   <body>
     <div class="container">
       <h1>TrendRadar 本地配置中心</h1>
-      <p>输入一个或多个关键词/描述，让 AI 生成用于匹配的正则表达式并保存到配置。</p>
+      <p>输入一个或多个关键词，让 AI 生成用于匹配的正则表达式并保存到配置。</p>
 
       <div class="field">
-        <label for="intentInput">关键词/主题描述</label>
+        <label for="intentInput">关键词/主题</label>
         <textarea
           id="intentInput"
-          placeholder="可以输入：单一名词 / 多个并列关键词 / 一段简短描述"
+          placeholder="可以输入：单一名词 / 多个并列关键词"
         ></textarea>
         <div class="suggest-row">
           <button id="aiSuggestBtn" type="button" class="secondary-btn">AI 生成正则</button>
@@ -229,6 +286,14 @@
 
       <div class="field">
         <label>调度系统（config.schedule）</label>
+        <div class="help-box">
+          <strong>推送机制说明：</strong>系统会在当前时间命中预设时间段时，按对应频率轮询并推送。
+          <ul class="help-list">
+            <li><strong>enabled=true：</strong>开启定时推送；<strong>enabled=false：</strong>完全暂停推送。</li>
+            <li><strong>preset=morning_evening：</strong>采用内置的早晚时段策略。</li>
+            <li><strong>preset=custom：</strong>按你设置的开始时间、结束时间、频率执行。</li>
+          </ul>
+        </div>
         <div class="inline-grid">
           <div>
             <label for="scheduleEnabled">是否启用</label>
@@ -263,18 +328,26 @@
             </div>
           </div>
           <div class="quick-actions">
-            <button id="openCustomPlanModalBtn" type="button">可视化设置时间段与频率</button>
-            <span class="pill pill-emerald">无需写 YAML</span>
+            <button id="openCustomPlanModalBtn" type="button">设置时间段与频率</button>
           </div>
         </div>
         <input id="customStart" type="time" value="09:00" class="hidden" />
         <input id="customEnd" type="time" value="18:00" class="hidden" />
         <input id="customFrequency" type="text" value="60" class="hidden" />
-        <div class="hint">你只需要点“可视化设置”，系统会自动保存对应配置。</div>
+        <div class="hint">你只需要点“设置时间段与频率”，系统会自动保存对应配置。</div>
       </div>
 
       <div class="field">
         <label>报告与 AI</label>
+        <div class="help-box">
+          <strong>选项含义：</strong>
+          <ul class="help-list">
+            <li><strong>report.mode=current：</strong>发送当前周期最新内容。</li>
+            <li><strong>report.mode=daily：</strong>按天汇总后推送。</li>
+            <li><strong>report.mode=incremental：</strong>仅推送相对上次新增的内容。</li>
+            <li><strong>ai_analysis.enabled=true：</strong>对内容增加 AI 分析；关闭后仅保留基础信息。</li>
+          </ul>
+        </div>
         <div class="inline-grid">
           <div>
             <label for="reportMode">report.mode</label>
