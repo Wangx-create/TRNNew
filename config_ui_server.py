@@ -67,7 +67,7 @@ def _load_ai_config() -> Dict[str, Any]:
     return data.get("ai", {}) or {}
 
 
-def _extract_header_lines(lines: List[str]) -> List[str]:
+def _extract_header_lines(lines: List[str]) -> List[str]:␊
     header = []
     for line in lines:
         if line.strip().startswith("["):
@@ -128,6 +128,35 @@ def _read_frequency_sections() -> Dict[str, str]:
         "regex": "\n".join(regex_lines).strip(),
     }
 
+
+def _load_custom_plan() -> Dict[str, Any]:
+    if not SCHEDULE_FILE.exists():
+        return {
+            "start": "09:00",
+            "end": "18:00",
+            "frequency_minutes": 60,
+        }
+
+    try:
+        data = json.loads(SCHEDULE_FILE.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("invalid local schedule")
+        return {
+            "start": str(data.get("start") or "09:00"),
+            "end": str(data.get("end") or "18:00"),
+            "frequency_minutes": int(data.get("frequency_minutes") or 60),
+        }
+    except Exception:
+        return {
+            "start": "09:00",
+            "end": "18:00",
+            "frequency_minutes": 60,
+        }
+
+
+def _valid_hhmm(value: str) -> bool:
+    return bool(re.fullmatch(r"([01]\d|2[0-3]):([0-5]\d)", value or ""))
+
 # --- 修改：同时支持 GLOBAL_FILTER 和 WORD_GROUPS 写入 ---
 def _build_frequency_content(regex: str, global_filter: str) -> str:
     existing_lines = FREQUENCY_FILE.read_text(encoding="utf-8").splitlines() if FREQUENCY_FILE.exists() else []
@@ -167,8 +196,8 @@ class ConfigRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(path.read_bytes())
 
-    def do_GET(self) -> None:
-        parsed = urlparse(self.path)
+    def do_GET(self) -> None:␊
+        parsed = urlparse(self.path)␊
         if self.path == "/favicon.ico":
             self.send_response(204)
             self.end_headers()
@@ -222,6 +251,41 @@ class ConfigRequestHandler(BaseHTTPRequestHandler):
             _save_config(data)
             response["updated"].append("config.yaml:schedule")
 
+            custom_plan = payload.get("custom_plan") or {}
+            if preset == "custom" and custom_plan:
+                start = str(custom_plan.get("start") or "09:00")
+                end = str(custom_plan.get("end") or "18:00")
+                frequency_minutes = int(custom_plan.get("frequency_minutes") or 60)
+
+                if not (_valid_hhmm(start) and _valid_hhmm(end)):
+                    self._send_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"detail": "自定义时段格式错误，请使用 HH:MM"},
+                    )
+                    return
+
+                if frequency_minutes <= 0:
+                    self._send_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"detail": "发送频率必须为正整数（分钟）"},
+                    )
+                    return
+
+                SCHEDULE_FILE.write_text(
+                    json.dumps(
+                        {
+                            "start": start,
+                            "end": end,
+                            "frequency_minutes": frequency_minutes,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                response["updated"].append("local_schedule.json")
+
         report_mode = (payload.get("report_mode") or "").strip()
         if report_mode:
             if report_mode not in {"daily", "current", "incremental"}:
@@ -263,6 +327,7 @@ class ConfigRequestHandler(BaseHTTPRequestHandler):
                     "preset": schedule.get("preset", "morning_evening"),
                     "presets": _load_timeline_presets(),
                 },
+                "custom_plan": _load_custom_plan(),
                 "report_mode": report.get("mode", "current"),
                 "ai_analysis_enabled": bool(ai_analysis.get("enabled", True)),
             },
