@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TrendRadar 本地配置中心</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #f5f7fb;
+        color: #1f2937;
+      }
+
+      .container {
+        max-width: 920px;
+        margin: 0 auto;
+        background: #ffffff;
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 22px;
+      }
+
+      p {
+        margin: 0 0 16px;
+        color: #6b7280;
+        font-size: 14px;
+      }
+
+      .field {
+        margin-bottom: 18px;
+      }
+
+      label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+
+      textarea,
+      input[type="text"],
+      input[type="time"] {
+        width: 100%;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        padding: 10px 12px;
+        font-size: 14px;
+        box-sizing: border-box;
+      }
+
+      textarea {
+        min-height: 100px;
+        font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px;
+      }
+
+      .checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      button {
+        border: none;
+        border-radius: 8px;
+        padding: 10px 16px;
+        background: #2563eb;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s ease;
+      }
+
+      button:hover {
+        background: #1d4ed8;
+      }
+
+      .secondary-btn {
+        border: 1px solid #cbd5f5;
+        background: #eef2ff;
+        color: #3730a3;
+      }
+
+      .secondary-btn:hover {
+        background: #e0e7ff;
+      }
+
+      .status {
+        margin-top: 16px;
+        padding: 12px;
+        border-radius: 8px;
+        background: #f3f4f6;
+        font-size: 13px;
+        white-space: pre-wrap;
+      }
+
+      .hint {
+        font-size: 12px;
+        color: #6b7280;
+        margin-top: 6px;
+      }
+
+      .suggest-row {
+        display: flex;
+        gap: 8px;
+        margin: 10px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>TrendRadar 本地配置中心</h1>
+      <p>输入一个或多个关键词/描述，让 AI 生成用于匹配的正则表达式并保存到配置。</p>
+
+      <div class="field">
+        <label for="intentInput">关键词/主题描述</label>
+        <textarea
+          id="intentInput"
+          placeholder="可以输入：单一名词 / 多个并列关键词 / 一段简短描述"
+        ></textarea>
+        <div class="suggest-row">
+          <button id="aiSuggestBtn" type="button" class="secondary-btn">AI 生成正则</button>
+        </div>
+        <div class="hint">AI 会生成多行规则（示例：/词A|词B/ => 主题）。</div>
+      </div>
+
+      <div class="field">
+        <label for="regexOutput">生成的正则表达式 [WORD_GROUPS]</label>
+        <textarea id="regexOutput" placeholder="点击上方按钮生成"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="globalFilter">全局过滤 [GLOBAL_FILTER]</label>
+        <textarea id="globalFilter" placeholder="输入不想看的内容正则，例如：/广告|抽奖|点击进入/"></textarea>
+        <div class="hint">保存配置会将该正则写入 frequency_words.txt 的 [GLOBAL_FILTER] 区域。</div>
+      </div>
+
+      <div class="field">
+        <label>推送时间窗口</label>
+        <div class="grid">
+          <input id="pushStart" type="time" value="09:00" />
+          <input id="pushEnd" type="time" value="18:00" />
+          <input id="pushEnabled" type="text" placeholder="enabled: true/false" value="true" />
+        </div>
+        <div class="hint">在此时间段外产生的资讯将排队等待，直到进入窗口期再推送。</div>
+        
+        <div class="checkbox-row">
+          <input id="oncePerDay" type="checkbox" />
+          <label for="oncePerDay">窗口内仅推送一次</label>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="schedule">推送频率（Cron 表达式）</label>
+        <input id="schedule" type="text" placeholder="例如 */30 * * * *" />
+        <div class="hint">本地运行需要系统任务调度配合；该值会保存为参考。</div>
+      </div>
+
+      <button id="submitBtn">保存配置</button>
+
+      <div id="status" class="status">等待提交...</div>
+    </div>
+
+    <script>
+      const statusEl = document.getElementById('status');
+      const submitBtn = document.getElementById('submitBtn');
+      const aiSuggestBtn = document.getElementById('aiSuggestBtn');
+      const intentInput = document.getElementById('intentInput');
+      const regexOutput = document.getElementById('regexOutput');
+      const globalFilter = document.getElementById('globalFilter'); // 新增
+
+      function setStatus(message) {
+        statusEl.textContent = message;
+      }
+
+      aiSuggestBtn.addEventListener('click', async () => {
+        const keyword = intentInput.value.trim();
+        if (!keyword) {
+          setStatus('请先输入关键词/主题描述。');
+          return;
+        }
+
+        setStatus('正在生成正则...');
+        try {
+          const res = await fetch('/api/suggest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keyword }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            setStatus(`AI 生成失败：${data.detail || '未知错误'}`);
+            return;
+          }
+          regexOutput.value = data.regex || '';
+          setStatus('AI 正则生成完成，可直接保存配置。');
+        } catch (err) {
+          setStatus(`AI 生成异常：${err.message}`);
+        }
+      });
+
+      submitBtn.addEventListener('click', async () => {
+        const payload = {
+          regex: regexOutput.value,
+          global_filter: globalFilter.value, // 新增
+          push_window: {
+            enabled: document.getElementById('pushEnabled').value.trim().toLowerCase() === 'true',
+            start: document.getElementById('pushStart').value,
+            end: document.getElementById('pushEnd').value,
+            once_per_day: document.getElementById('oncePerDay').checked,
+          },
+          schedule: document.getElementById('schedule').value.trim(),
+        };
+
+        setStatus('正在提交配置...');
+
+        try {
+          const res = await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+
+          const data = await res.json();
+          if (!res.ok) {
+            setStatus(`提交失败：${data.detail || '未知错误'}`);
+            return;
+          }
+          setStatus(`提交成功：\n${JSON.stringify(data, null, 2)}`);
+        } catch (err) {
+          setStatus(`提交异常：${err.message}`);
+        }
+      });
+    </script>
+  </body>
+</html>
