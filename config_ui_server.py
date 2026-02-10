@@ -16,6 +16,7 @@ ROOT_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = ROOT_DIR / "config"
 FREQUENCY_FILE = CONFIG_DIR / "frequency_words.txt"
 CONFIG_FILE = CONFIG_DIR / "config.yaml"
+TIMELINE_FILE = CONFIG_DIR / "timeline.yaml"
 SCHEDULE_FILE = CONFIG_DIR / "local_schedule.json"
 UI_DIR = ROOT_DIR / "config_ui"
 
@@ -77,6 +78,56 @@ def _extract_header_lines(lines: List[str]) -> List[str]:
         break
     return header
 
+
+def _load_timeline_presets() -> List[str]:
+    if not TIMELINE_FILE.exists():
+        return ["always_on", "morning_evening", "office_hours", "night_owl", "custom"]
+
+    with TIMELINE_FILE.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        return ["always_on", "morning_evening", "office_hours", "night_owl", "custom"]
+
+    presets = data.get("presets") or {}
+    preset_names = list(presets.keys()) if isinstance(presets, dict) else []
+    if "custom" not in preset_names:
+        preset_names.append("custom")
+    return preset_names
+
+
+def _read_frequency_sections() -> Dict[str, str]:
+    if not FREQUENCY_FILE.exists():
+        return {"global_filter": "", "regex": ""}
+
+    content = FREQUENCY_FILE.read_text(encoding="utf-8")
+    lines = content.splitlines()
+
+    current_section = None
+    global_filter_lines: List[str] = []
+    regex_lines: List[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "[GLOBAL_FILTER]":
+            current_section = "GLOBAL_FILTER"
+            continue
+        if stripped == "[WORD_GROUPS]":
+            current_section = "WORD_GROUPS"
+            continue
+        if stripped.startswith("[") and stripped.endswith("]"):
+            current_section = None
+            continue
+
+        if current_section == "GLOBAL_FILTER":
+            global_filter_lines.append(line)
+        elif current_section == "WORD_GROUPS":
+            regex_lines.append(line)
+
+    return {
+        "global_filter": "\n".join(global_filter_lines).strip(),
+        "regex": "\n".join(regex_lines).strip(),
+    }
+
 # --- 修改：同时支持 GLOBAL_FILTER 和 WORD_GROUPS 写入 ---
 def _build_frequency_content(regex: str, global_filter: str) -> str:
     existing_lines = FREQUENCY_FILE.read_text(encoding="utf-8").splitlines() if FREQUENCY_FILE.exists() else []
@@ -125,6 +176,9 @@ class ConfigRequestHandler(BaseHTTPRequestHandler):
         if parsed.path in ("/", "/index.html"):
             self._serve_file(UI_DIR / "index.html")
             return
+        if parsed.path == "/api/config":
+            self._handle_get_config()
+            return
         self.send_error(HTTPStatus.NOT_FOUND, "未找到资源")
 
     def do_POST(self) -> None:
@@ -149,27 +203,70 @@ class ConfigRequestHandler(BaseHTTPRequestHandler):
         FREQUENCY_FILE.write_text(_build_frequency_content(regex, global_filter), encoding="utf-8")
         response["updated"].append("frequency_words.txt")
 
-        push_window = payload.get("push_window") or {}
-        if push_window:
-            data = _load_config()
-            notification = data.setdefault("notification", {})
-            pw_config = notification.setdefault("push_window", {})
-            pw_config["enabled"] = bool(push_window.get("enabled", False))
-            pw_config["start"] = push_window.get("start", "09:00")
-            pw_config["end"] = push_window.get("end", "18:00")
-            pw_config["once_per_day"] = bool(push_window.get("once_per_day", True))
-            _save_config(data)
-            response["updated"].append("config.yaml:notification.push_window")
-
-        schedule = (payload.get("schedule") or "").strip()
+        schedule = payload.get("schedule") or {}
         if schedule:
-            SCHEDULE_FILE.write_text(
-                json.dumps({"cron": schedule}, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
-            response["updated"].append("local_schedule.json")
+            data = _load_config()
+            schedule_config = data.setdefault("schedule", {})
+
+            presets = _load_timeline_presets()
+            preset = str(schedule.get("preset") or "morning_evening")
+            if preset not in presets:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"detail": f"无效 schedule.preset: {preset}，可选: {', '.join(presets)}"},
+                )
+                return
+
+            schedule_config["enabled"] = bool(schedule.get("enabled", True))
+            schedule_config["preset"] = preset
+            _save_config(data)
+            response["updated"].append("config.yaml:schedule")
+
+        report_mode = (payload.get("report_mode") or "").strip()
+        if report_mode:
+            if report_mode not in {"daily", "current", "incremental"}:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"detail": "report_mode 仅支持 daily/current/incremental"},
+                )
+                return
+
+            data = _load_config()
+            report = data.setdefault("report", {})
+            report["mode"] = report_mode
+            _save_config(data)
+            response["updated"].append("config.yaml:report.mode")
+
+        if "ai_analysis_enabled" in payload:
+            data = _load_config()
+            ai_analysis = data.setdefault("ai_analysis", {})
+            ai_analysis["enabled"] = bool(payload.get("ai_analysis_enabled"))
+            _save_config(data)
+            response["updated"].append("config.yaml:ai_analysis.enabled")
 
         self._send_json(HTTPStatus.OK, response)
+
+    def _handle_get_config(self) -> None:
+        data = _load_config()
+        schedule = data.get("schedule") or {}
+        report = data.get("report") or {}
+        ai_analysis = data.get("ai_analysis") or {}
+        freq = _read_frequency_sections()
+
+        self._send_json(
+            HTTPStatus.OK,
+            {
+                "regex": freq.get("regex", ""),
+                "global_filter": freq.get("global_filter", ""),
+                "schedule": {
+                    "enabled": bool(schedule.get("enabled", True)),
+                    "preset": schedule.get("preset", "morning_evening"),
+                    "presets": _load_timeline_presets(),
+                },
+                "report_mode": report.get("mode", "current"),
+                "ai_analysis_enabled": bool(ai_analysis.get("enabled", True)),
+            },
+        )
 
     def _handle_suggest(self) -> None:
         content_length = int(self.headers.get("Content-Length", "0"))
