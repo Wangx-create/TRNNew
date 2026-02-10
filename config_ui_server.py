@@ -11,6 +11,8 @@ from urllib.parse import urlparse
 import requests
 import yaml
 from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedMap, CommentedSeq
+from yaml.representer import SafeRepresenter
 
 ROOT_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = ROOT_DIR / "config"
@@ -45,6 +47,11 @@ AI_SUGGEST_PROMPT = """你是一个专业的关键词扩展引擎。
 _yaml_roundtrip = YAML()
 _yaml_roundtrip.preserve_quotes = True
 
+# 兼容 ruamel 的 CommentedMap/CommentedSeq，避免在调用 pyyaml.safe_dump 时抛出
+# "yaml.representer.RepresenterError: cannot represent an object"。
+yaml.SafeDumper.add_representer(CommentedMap, SafeRepresenter.represent_dict)
+yaml.SafeDumper.add_representer(CommentedSeq, SafeRepresenter.represent_list)
+
 
 def _load_config() -> Dict[str, Any]:
     with CONFIG_FILE.open("r", encoding="utf-8") as f:
@@ -67,7 +74,7 @@ def _load_ai_config() -> Dict[str, Any]:
     return data.get("ai", {}) or {}
 
 
-def _extract_header_lines(lines: List[str]) -> List[str]:␊
+def _extract_header_lines(lines: List[str]) -> List[str]:
     header = []
     for line in lines:
         if line.strip().startswith("["):
@@ -196,8 +203,8 @@ class ConfigRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(path.read_bytes())
 
-    def do_GET(self) -> None:␊
-        parsed = urlparse(self.path)␊
+    def do_GET(self) -> None:
+        parsed = urlparse(self.path)
         if self.path == "/favicon.ico":
             self.send_response(204)
             self.end_headers()
