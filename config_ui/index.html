@@ -31,7 +31,7 @@
         font-size: 22px;
       }
 
-      p {
+      p {␊
         margin: 0 0 16px;
         color: #6b7280;
         font-size: 14px;
@@ -57,40 +57,7 @@
         font-size: 14px;
         box-sizing: border-box;
       }
-
-      textarea {
-        min-height: 100px;
-        font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-      }
-
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 12px;
-      }
-
-      .checkbox-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-top: 8px;
-      }
-
-      button {
-        border: none;
-        border-radius: 8px;
-        padding: 10px 16px;
-        background: #2563eb;
-        color: #fff;
-        font-weight: 600;
-        cursor: pointer;
-        transition: background 0.2s ease;
-      }
-
-      button:hover {
-        background: #1d4ed8;
-      }
-
+@@ -94,159 +94,451 @@
       .secondary-btn {
         border: 1px solid #cbd5f5;
         background: #eef2ff;
@@ -128,6 +95,10 @@
         gap: 12px;
       }
 
+      .hidden {
+        display: none;
+      }
+
       select {
         width: 100%;
         border: 1px solid #d1d5db;
@@ -136,6 +107,95 @@
         font-size: 14px;
         box-sizing: border-box;
         background: #fff;
+      }
+
+      .visual-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        background: #fafcff;
+        padding: 14px;
+      }
+
+      .pill {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 12px;
+        margin-right: 6px;
+        margin-top: 6px;
+      }
+
+      .pill-blue {
+        background: #dbeafe;
+        color: #1e40af;
+      }
+
+      .pill-purple {
+        background: #ede9fe;
+        color: #6d28d9;
+      }
+
+      .pill-emerald {
+        background: #d1fae5;
+        color: #065f46;
+      }
+
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.45);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        z-index: 100;
+      }
+
+      .modal-overlay.hidden {
+        display: none;
+      }
+
+      .modal-content {
+        width: min(640px, 100%);
+        border-radius: 14px;
+        background: white;
+        box-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
+        padding: 18px;
+      }
+
+      .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 14px;
+      }
+
+      .icon-btn {
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        color: #475569;
+        padding: 6px 10px;
+      }
+
+      .icon-btn:hover {
+        background: #f8fafc;
+      }
+
+      .quick-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .quick-actions button {
+        background: #eef2ff;
+        color: #3730a3;
+        border: 1px solid #c7d2fe;
+      }
+
+      .quick-actions button:hover {
+        background: #e0e7ff;
       }
     </style>
   </head>
@@ -148,7 +208,7 @@
         <label for="intentInput">关键词/主题描述</label>
         <textarea
           id="intentInput"
-          placeholder="可以输入：单一名词 / 多个并列关键词"
+          placeholder="可以输入：单一名词 / 多个并列关键词 / 一段简短描述"
         ></textarea>
         <div class="suggest-row">
           <button id="aiSuggestBtn" type="button" class="secondary-btn">AI 生成正则</button>
@@ -185,6 +245,34 @@
         <div class="hint">对应 config.yaml 的 schedule.enabled 与 schedule.preset（如 morning_evening）。</div>
       </div>
 
+      <div id="customPlanField" class="field hidden">
+        <label>自定义接收设置（仅当选择“custom”时生效）</label>
+        <div class="visual-card">
+          <div class="inline-grid" style="align-items: end;">
+            <div>
+              <div class="hint" style="margin-top: 0">接收时间段</div>
+              <div>
+                <span id="customPreviewWindow" class="pill pill-blue">09:00 - 18:00</span>
+              </div>
+            </div>
+            <div>
+              <div class="hint" style="margin-top: 0">发送频率</div>
+              <div>
+                <span id="customPreviewFrequency" class="pill pill-purple">每 60 分钟</span>
+              </div>
+            </div>
+          </div>
+          <div class="quick-actions">
+            <button id="openCustomPlanModalBtn" type="button">可视化设置时间段与频率</button>
+            <span class="pill pill-emerald">无需写 YAML</span>
+          </div>
+        </div>
+        <input id="customStart" type="time" value="09:00" class="hidden" />
+        <input id="customEnd" type="time" value="18:00" class="hidden" />
+        <input id="customFrequency" type="text" value="60" class="hidden" />
+        <div class="hint">你只需要点“可视化设置”，系统会自动保存对应配置。</div>
+      </div>
+
       <div class="field">
         <label>报告与 AI</label>
         <div class="inline-grid">
@@ -211,6 +299,35 @@
       <div id="status" class="status">等待提交...</div>
     </div>
 
+    <div id="customPlanModal" class="modal-overlay hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 style="margin: 0; font-size: 18px;">🕒 自定义接收设置</h3>
+          <button id="closeCustomPlanModalBtn" type="button" class="icon-btn">关闭</button>
+        </div>
+        <p style="margin-bottom: 12px;">只需要填写这 3 个字段，系统会自动转换为配置。</p>
+        <div class="inline-grid">
+          <div>
+            <label for="modalCustomStart">接收开始时间</label>
+            <input id="modalCustomStart" type="time" value="09:00" />
+          </div>
+          <div>
+            <label for="modalCustomEnd">接收结束时间</label>
+            <input id="modalCustomEnd" type="time" value="18:00" />
+          </div>
+        </div>
+        <div style="margin-top: 12px;">
+          <label for="modalCustomFrequency">发送频率（分钟）</label>
+          <input id="modalCustomFrequency" type="text" value="60" placeholder="例如 30（每 30 分钟推送）" />
+        </div>
+        <div class="hint">提示：若开始时间大于结束时间（如 22:00-07:00），会按跨午夜时段处理。</div>
+        <div style="display: flex; justify-content: end; gap: 8px; margin-top: 14px;">
+          <button id="cancelCustomPlanBtn" type="button" class="secondary-btn">取消</button>
+          <button id="applyCustomPlanBtn" type="button">应用设置</button>
+        </div>
+      </div>
+    </div>
+
     <script>
       const statusEl = document.getElementById('status');
       const submitBtn = document.getElementById('submitBtn');
@@ -218,6 +335,49 @@
       const intentInput = document.getElementById('intentInput');
       const regexOutput = document.getElementById('regexOutput');
       const globalFilter = document.getElementById('globalFilter');
+      const schedulePresetEl = document.getElementById('schedulePreset');
+      const customPlanField = document.getElementById('customPlanField');
+      const customPlanModal = document.getElementById('customPlanModal');
+
+      function updateCustomPreview() {
+        const start = document.getElementById('customStart').value || '09:00';
+        const end = document.getElementById('customEnd').value || '18:00';
+        const freq = Number.parseInt(document.getElementById('customFrequency').value, 10) || 60;
+        document.getElementById('customPreviewWindow').textContent = `${start} - ${end}`;
+        document.getElementById('customPreviewFrequency').textContent = `每 ${freq} 分钟`;
+      }
+
+      function openCustomPlanModal() {
+        document.getElementById('modalCustomStart').value = document.getElementById('customStart').value || '09:00';
+        document.getElementById('modalCustomEnd').value = document.getElementById('customEnd').value || '18:00';
+        document.getElementById('modalCustomFrequency').value = document.getElementById('customFrequency').value || '60';
+        customPlanModal.classList.remove('hidden');
+      }
+
+      function closeCustomPlanModal() {
+        customPlanModal.classList.add('hidden');
+      }
+
+      function applyCustomPlan() {
+        const modalStart = document.getElementById('modalCustomStart').value;
+        const modalEnd = document.getElementById('modalCustomEnd').value;
+        const modalFreqRaw = document.getElementById('modalCustomFrequency').value;
+        const modalFreq = Number.parseInt(modalFreqRaw, 10);
+        if (!Number.isInteger(modalFreq) || modalFreq <= 0) {
+          setStatus('发送频率请填写正整数分钟。');
+          return;
+        }
+        document.getElementById('customStart').value = modalStart;
+        document.getElementById('customEnd').value = modalEnd;
+        document.getElementById('customFrequency').value = String(modalFreq);
+        updateCustomPreview();
+        closeCustomPlanModal();
+        setStatus('已应用自定义设置，点击“保存配置”即可生效。');
+      }
+
+      function toggleCustomField() {
+        customPlanField.classList.toggle('hidden', schedulePresetEl.value !== 'custom');
+      }
 
       async function loadCurrentConfig() {
         setStatus('正在读取当前配置...');
@@ -233,21 +393,27 @@
           globalFilter.value = data.global_filter || '';
 
           const scheduleEnabled = document.getElementById('scheduleEnabled');
-          const schedulePreset = document.getElementById('schedulePreset');
           const reportMode = document.getElementById('reportMode');
           const aiAnalysisEnabled = document.getElementById('aiAnalysisEnabled');
 
           scheduleEnabled.value = String(data.schedule?.enabled ?? true);
-          schedulePreset.innerHTML = '';
+          schedulePresetEl.innerHTML = '';
           (data.schedule?.presets || []).forEach((preset) => {
             const option = document.createElement('option');
             option.value = preset;
             option.textContent = preset;
-            schedulePreset.appendChild(option);
+            schedulePresetEl.appendChild(option);
           });
-          schedulePreset.value = data.schedule?.preset || 'morning_evening';
+          schedulePresetEl.value = data.schedule?.preset || 'morning_evening';
           reportMode.value = data.report_mode || 'current';
           aiAnalysisEnabled.value = String(data.ai_analysis_enabled ?? true);
+
+          document.getElementById('customStart').value = data.custom_plan?.start || '09:00';
+          document.getElementById('customEnd').value = data.custom_plan?.end || '18:00';
+          document.getElementById('customFrequency').value = String(data.custom_plan?.frequency_minutes ?? 60);
+
+          updateCustomPreview();
+          toggleCustomField();
 
           setStatus('配置已加载，可直接修改后保存。');
         } catch (err) {
@@ -286,12 +452,23 @@
       });
 
       submitBtn.addEventListener('click', async () => {
+        const frequencyValue = Number.parseInt(document.getElementById('customFrequency').value, 10);
+        if (schedulePresetEl.value === 'custom' && (!Number.isInteger(frequencyValue) || frequencyValue <= 0)) {
+          setStatus('请填写正确的发送频率（正整数分钟）。');
+          return;
+        }
+
         const payload = {
           regex: regexOutput.value,
           global_filter: globalFilter.value,
           schedule: {
             enabled: document.getElementById('scheduleEnabled').value === 'true',
-            preset: document.getElementById('schedulePreset').value,
+            preset: schedulePresetEl.value,
+          },
+          custom_plan: {
+            start: document.getElementById('customStart').value,
+            end: document.getElementById('customEnd').value,
+            frequency_minutes: Number.isInteger(frequencyValue) ? frequencyValue : 60,
           },
           report_mode: document.getElementById('reportMode').value,
           ai_analysis_enabled: document.getElementById('aiAnalysisEnabled').value === 'true',
@@ -314,6 +491,17 @@
           setStatus(`提交成功：\n${JSON.stringify(data, null, 2)}`);
         } catch (err) {
           setStatus(`提交异常：${err.message}`);
+        }
+      });
+
+      schedulePresetEl.addEventListener('change', toggleCustomField);
+      document.getElementById('openCustomPlanModalBtn').addEventListener('click', openCustomPlanModal);
+      document.getElementById('closeCustomPlanModalBtn').addEventListener('click', closeCustomPlanModal);
+      document.getElementById('cancelCustomPlanBtn').addEventListener('click', closeCustomPlanModal);
+      document.getElementById('applyCustomPlanBtn').addEventListener('click', applyCustomPlan);
+      customPlanModal.addEventListener('click', (event) => {
+        if (event.target === customPlanModal) {
+          closeCustomPlanModal();
         }
       });
 
