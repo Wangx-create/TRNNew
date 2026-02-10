@@ -102,6 +102,62 @@ def _load_timeline_presets() -> List[str]:
     return preset_names
 
 
+def _load_timeline_preset_details() -> Dict[str, Any]:
+    if not TIMELINE_FILE.exists():
+        return {}
+
+    try:
+        with TIMELINE_FILE.open("r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+
+    if not isinstance(data, dict):
+        return {}
+
+    presets = data.get("presets") or {}
+    if not isinstance(presets, dict):
+        return {}
+
+    details: Dict[str, Any] = {}
+    for preset_key, preset_data in presets.items():
+        if not isinstance(preset_data, dict):
+            continue
+
+        periods = preset_data.get("periods") or {}
+        period_items: List[Dict[str, str]] = []
+        if isinstance(periods, dict):
+            for period_key, period_data in periods.items():
+                if not isinstance(period_data, dict):
+                    continue
+                start = str(period_data.get("start") or "")
+                end = str(period_data.get("end") or "")
+                if not start or not end:
+                    continue
+                period_items.append(
+                    {
+                        "key": str(period_key),
+                        "name": str(period_data.get("name") or period_key),
+                        "start": start,
+                        "end": end,
+                    }
+                )
+
+        details[str(preset_key)] = {
+            "name": str(preset_data.get("name") or preset_key),
+            "description": str(preset_data.get("description") or ""),
+            "periods": period_items,
+            "default_push": bool((preset_data.get("default") or {}).get("push", False))
+            if isinstance(preset_data.get("default"), dict)
+            else False,
+            "default_report_mode": str((preset_data.get("default") or {}).get("report_mode") or "")
+            if isinstance(preset_data.get("default"), dict)
+            else "",
+        }
+
+    return details
+
+
 def _read_frequency_sections() -> Dict[str, str]:
     if not FREQUENCY_FILE.exists():
         return {"global_filter": "", "regex": ""}
@@ -333,6 +389,7 @@ class ConfigRequestHandler(BaseHTTPRequestHandler):
                     "enabled": bool(schedule.get("enabled", True)),
                     "preset": schedule.get("preset", "morning_evening"),
                     "presets": _load_timeline_presets(),
+                    "preset_details": _load_timeline_preset_details(),
                 },
                 "custom_plan": _load_custom_plan(),
                 "report_mode": report.get("mode", "current"),
