@@ -367,7 +367,10 @@
         </div>
       </div>
 
-      <button id="submitBtn">保存配置</button>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <button id="submitBtn">保存配置</button>
+        <button id="runBtn" type="button" class="secondary-btn" disabled>开始运行</button>
+      </div>
 
       <div id="status" class="status">等待提交...</div>
     </div>
@@ -404,6 +407,7 @@
     <script>
       const statusEl = document.getElementById('status');
       const submitBtn = document.getElementById('submitBtn');
+      const runBtn = document.getElementById('runBtn');
       const aiSuggestBtn = document.getElementById('aiSuggestBtn');
       const intentInput = document.getElementById('intentInput');
       const regexOutput = document.getElementById('regexOutput');
@@ -411,6 +415,7 @@
       const schedulePresetEl = document.getElementById('schedulePreset');
       const customPlanField = document.getElementById('customPlanField');
       const customPlanModal = document.getElementById('customPlanModal');
+      let canRun = false;
 
       function updateCustomPreview() {
         const start = document.getElementById('customStart').value || '09:00';
@@ -498,6 +503,41 @@
         statusEl.textContent = message;
       }
 
+      function setButtonsDisabled(disabled) {
+        submitBtn.disabled = disabled;
+        runBtn.disabled = disabled || !canRun;
+      }
+
+      async function runAnalyzer() {
+        setButtonsDisabled(true);
+        setStatus('正在执行 TrendRadar，请稍候...');
+        try {
+          const payload = { client_sent_at_ms: Date.now() };
+          const res = await fetch('/api/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            setStatus(`运行失败：${data.detail || data.stderr || '未知错误'}`);
+            return;
+          }
+
+          const timing = data.timing || {};
+          const timingText = [
+            `后端运行耗时: ${timing.backend_run_ms ?? '-'} ms`,
+            `前端请求到HTML生成耗时: ${timing.frontend_to_html_ms ?? '-'} ms`,
+          ].join('\n');
+          const htmlText = data.html_path ? `HTML路径: ${data.html_path}` : '未检测到HTML输出路径';
+          setStatus(`运行成功。\n${timingText}\n${htmlText}`);
+        } catch (err) {
+          setStatus(`运行异常：${err.message}`);
+        } finally {
+          setButtonsDisabled(false);
+        }
+      }
+
       aiSuggestBtn.addEventListener('click', async () => {
         const keyword = intentInput.value.trim();
         if (!keyword) {
@@ -547,6 +587,7 @@
           ai_analysis_enabled: document.getElementById('aiAnalysisEnabled').value === 'true',
         };
 
+        setButtonsDisabled(true);
         setStatus('正在提交配置...');
 
         try {
@@ -562,10 +603,17 @@
             return;
           }
           setStatus(`提交成功：\n${JSON.stringify(data, null, 2)}`);
+          canRun = true;
+          runBtn.disabled = false;
         } catch (err) {
           setStatus(`提交异常：${err.message}`);
+        } finally {
+          submitBtn.disabled = false;
+          runBtn.disabled = !canRun;
         }
       });
+
+      runBtn.addEventListener('click', runAnalyzer);
 
       schedulePresetEl.addEventListener('change', toggleCustomField);
       document.getElementById('openCustomPlanModalBtn').addEventListener('click', openCustomPlanModal);
