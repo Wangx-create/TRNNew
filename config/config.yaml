@@ -360,7 +360,7 @@ ai:
   
   model: "openai/deepseek-v3"
 
-  api_key: "bce-v3/ALTAK-ZA2MieK3LcFhpBQOsEQcZ/85f6419fea1b01ab3d8dbad87629a1d7c33f7b9d"                       # API Key（建议使用环境变量 AI_API_KEY）
+  api_key: "bce-v3/ALTAK-xxxxxxxxxxxxxxxxxxxx"                       # API Key（建议使用环境变量 AI_API_KEY）
   
   api_base: "https://qianfan.baidubce.com/v2"                      # 自定义 API 端点（可选，大多数情况留空）
                                     # 示例: https://api.openai.com/v1（自建代理或兼容接口）
