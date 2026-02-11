@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
+import sys
+import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -21,6 +26,7 @@ CONFIG_FILE = CONFIG_DIR / "config.yaml"
 TIMELINE_FILE = CONFIG_DIR / "timeline.yaml"
 SCHEDULE_FILE = CONFIG_DIR / "local_schedule.json"
 UI_DIR = ROOT_DIR / "config_ui"
+_RUN_LOCK = threading.Lock()
 
 # --- 修改后的 Prompt ---
 AI_SUGGEST_PROMPT = """你是一个专业的关键词扩展引擎。
@@ -241,6 +247,114 @@ def _build_frequency_content(regex: str, global_filter: str) -> str:
     return "\n".join(content_lines) + "\n"
 
 
+def _detect_project_root() -> Path:
+    """定位包含 trendradar 包的项目根目录。"""
+    candidates = [ROOT_DIR, Path.cwd(), ROOT_DIR.parent]
+    seen = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if (resolved / "trendradar" / "__init__.py").exists():
+            return resolved
+    return ROOT_DIR
+
+
+def _extract_bat_config(bat_file: Path) -> Dict[str, str]:
+    """从 bat 文件中提取 Python 路径和工作目录配置。"""
+    try:
+        content = bat_file.read_text(encoding="utf-8")
+        python_path = None
+        work_dir = None
+        
+        # 提取 Python 路径（格式如：/d/python/python-3.12/python.exe）
+        python_match = re.search(r'(/[a-z]/[^"\s]+/python\.exe)', content)
+        if python_match:
+            # 将 Git Bash 路径转换为 Windows 路径
+            git_path = python_match.group(1)
+            # /d/python/python-3.12/python.exe -> D:\python\python-3.12\python.exe
+            parts = git_path.split('/')
+            if len(parts) >= 3 and len(parts[1]) == 1:
+                drive = parts[1].upper()
+                rest = '\\'.join(parts[2:])
+                python_path = f"{drive}:\\{rest}"
+        
+        # 提取工作目录（格式如：cd /d/TRNNew）
+        cd_match = re.search(r'cd\s+(/[a-z]/[^"\s;&]+)', content)
+        if cd_match:
+            git_path = cd_match.group(1)
+            parts = git_path.split('/')
+            if len(parts) >= 2 and len(parts[1]) == 1:
+                drive = parts[1].upper()
+                rest = '\\'.join(parts[2:]) if len(parts) > 2 else ""
+                work_dir = f"{drive}:\\" + (rest if rest else "")
+        
+        return {
+            "python_path": python_path or "",
+            "work_dir": work_dir or "",
+        }
+    except Exception:
+        return {"python_path": "", "work_dir": ""}
+
+
+def _build_run_strategy(project_root: Path) -> Dict[str, Any]:
+    """构建运行命令策略：精确模拟 bat 文件的运行方式。"""
+    bat_file = project_root / "开始运行.bat"
+    
+    # Windows 环境：从 bat 文件中提取配置
+    if os.name == "nt" and bat_file.exists():
+        bat_config = _extract_bat_config(bat_file)
+        
+        # 如果能从 bat 中提取到配置，使用提取的配置
+        if bat_config["python_path"] and bat_config["work_dir"]:
+            python_exe = bat_config["python_path"]
+            work_dir = bat_config["work_dir"]
+            
+            # 验证提取的路径是否存在
+            if Path(python_exe).exists() and Path(work_dir).exists():
+                # 关键修改：模拟 bat 文件的运行方式
+                # bat 中使用: python.exe -c "import sys; sys.path.append('.'); import trendradar.__main__; trendradar.__main__.main()"
+                # 这说明需要将当前目录加入 sys.path，然后直接导入运行
+                return {
+                    "name": "extracted_from_bat",
+                    "command": [
+                        python_exe,
+                        "-c",
+                        "import sys; sys.path.append('.'); import trendradar.__main__; trendradar.__main__.main()"
+                    ],
+                    "cwd": work_dir,
+                    "env": {
+                        **os.environ,
+                        "PYTHONIOENCODING": "utf-8",
+                    },
+                }
+        
+        # 降级：尝试直接调用 bat（需要 Git Bash 环境）
+        return {
+            "name": "bat_script_direct",
+            "command": [str(bat_file)],
+            "cwd": str(project_root),
+            "env": {**os.environ, "PYTHONIOENCODING": "utf-8"},
+        }
+
+    # 后备方案：直接使用 Python 模块运行
+    pythonpath = str(project_root)
+    if os.environ.get("PYTHONPATH"):
+        pythonpath = pythonpath + os.pathsep + os.environ["PYTHONPATH"]
+
+    return {
+        "name": "python_module",
+        "command": [sys.executable, "-m", "trendradar"],
+        "cwd": str(project_root),
+        "env": {
+            **os.environ,
+            "PYTHONIOENCODING": "utf-8",
+            "PYTHONPATH": pythonpath,
+        },
+    }
+
+
 class ConfigRequestHandler(BaseHTTPRequestHandler):
     def _send_json(self, status: int, payload: Dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -277,6 +391,9 @@ class ConfigRequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/api/suggest":
             self._handle_suggest()
+            return
+        if parsed.path == "/api/run":
+            self._handle_run()
             return
         if parsed.path != "/api/config":
             self.send_error(HTTPStatus.NOT_FOUND, "未找到接口")
@@ -372,6 +489,69 @@ class ConfigRequestHandler(BaseHTTPRequestHandler):
             response["updated"].append("config.yaml:ai_analysis.enabled")
 
         self._send_json(HTTPStatus.OK, response)
+
+    def _handle_run(self) -> None:
+        content_length = int(self.headers.get("Content-Length", "0"))
+        raw_body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+
+        try:
+            payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+        except Exception:
+            payload = {}
+
+        if not _RUN_LOCK.acquire(blocking=False):
+            self._send_json(
+                HTTPStatus.CONFLICT,
+                {"detail": "当前已有任务在运行，请稍后重试"},
+            )
+            return
+
+        request_received_ts = time.time()
+        try:
+            project_root = _detect_project_root()
+            strategy = _build_run_strategy(project_root)
+            command = strategy["command"]
+            process = subprocess.run(
+                command,
+                cwd=strategy["cwd"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                env=strategy["env"],
+            )
+
+            finished_ts = time.time()
+            html_path = ""
+            for line in process.stdout.splitlines():
+                marker = "HTML报告已生成:"
+                if marker in line:
+                    html_path = line.split(marker, 1)[1].strip()
+
+            client_sent_at_ms_raw = payload.get("client_sent_at_ms")
+            front_to_html_ms = None
+            if isinstance(client_sent_at_ms_raw, (int, float)) and client_sent_at_ms_raw > 0:
+                front_to_html_ms = int((finished_ts * 1000) - float(client_sent_at_ms_raw))
+
+            response_payload: Dict[str, Any] = {
+                "success": process.returncode == 0,
+                "returncode": process.returncode,
+                "command": " ".join(command),
+                "project_root": str(project_root),
+                "run_strategy": strategy["name"],
+                "timing": {
+                    "backend_run_ms": int((finished_ts - request_received_ts) * 1000),
+                    "frontend_to_html_ms": front_to_html_ms,
+                    "request_received_at": request_received_ts,
+                    "finished_at": finished_ts,
+                },
+                "html_path": html_path,
+                "stdout": process.stdout,
+                "stderr": process.stderr,
+            }
+            status = HTTPStatus.OK if process.returncode == 0 else HTTPStatus.BAD_GATEWAY
+            self._send_json(status, response_payload)
+        finally:
+            _RUN_LOCK.release()
 
     def _handle_get_config(self) -> None:
         data = _load_config()
